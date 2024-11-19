@@ -31,7 +31,7 @@ def save_dbs(operations, portfolio):
     portfolio.to_csv(PORTFOLIO_FILE, index=False)
 
 def format_float(value):
-    return f"{value:,.1f}" if value % 1 != 0 else f"{value:,.0f}"
+    return f"{value:,.0f}"
 
 def print_report(operations, portfolio):
     table = Table(title='Current Portfolio')
@@ -52,7 +52,7 @@ def print_report(operations, portfolio):
         if currency == 'ARS':
             symbol_for_yf = f'{symbol}.BA'
         else:
-            symbol_for_yf = symbol[:-1] if symbol.endswith('D') else symbol
+            symbol_for_yf = symbol[:-5] if symbol.endswith('IBKR') else symbol
 
         closing_price = get_latest_closing_price(symbol_for_yf)
 

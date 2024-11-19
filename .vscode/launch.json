@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: __main__.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/portfolio-tracker",
+            "console": "integratedTerminal",
+            "args": ["report"]
+        }
+    ]
+}

@@ -16,13 +16,22 @@ PORTFOLIO_FILE = os.path.join(BASE_DIR, 'db', 'portfolio.csv')
 
 def read_dbs():
     try:
+        operations = pd.read_csv(OPERATIONS_FILE, dtype={
+            'operation': str,
+            'symbol': str,
+            'position': float,
+            'price': float,
+            'currency': str,
+            'date': str
+        })
+    except FileNotFoundError:
+        operations = pd.DataFrame(columns=['operation', 'position', 'symbol', 'price', 'currency', 'date'])
+
+    try:
         portfolio = pd.read_csv(PORTFOLIO_FILE)
-        operations = pd.read_csv(OPERATIONS_FILE)
-    except FileNotFoundError as e:
-        console.print(f"Error: {e}")
+    except FileNotFoundError:
         portfolio = pd.DataFrame(columns=['symbol', 'position'])
-        operations = pd.DataFrame(
-            columns=['operation', 'position', 'symbol', 'price', 'currency', 'date'])
+
     return portfolio, operations
 
 
@@ -44,10 +53,12 @@ def print_report(operations, portfolio):
 
     for _, row in portfolio.iterrows():
         symbol = row['symbol']
-        condition = (operations['symbol'] == symbol) & (operations['operation'] == 'add')
-        avg_price = operations.loc[condition, 'price'].mean()
-        cost_basis = (operations.loc[condition, 'position'] * operations.loc[condition, 'price']).sum()
-        currency = operations.loc[condition, 'currency'].values[0]
+        add_condition = (operations['symbol'] == symbol) & (operations['operation'] == 'add')
+        sub_condition = (operations['symbol'] == symbol) & (operations['operation'] == 'sub')
+
+        avg_price = operations.loc[add_condition, 'price'].mean()
+        cost_basis = (operations.loc[add_condition, 'position'] * operations.loc[add_condition, 'price']).sum() - (operations.loc[sub_condition, 'position'] * operations.loc[sub_condition, 'price']).sum()
+        currency = operations.loc[add_condition, 'currency'].values[0]
 
         if currency == 'ARS':
             symbol_for_yf = f'{symbol}.BA'
@@ -92,9 +103,12 @@ def validate_args(args):
 
 def update_portfolio(portfolio, verb, symbol, position):
     if len(portfolio.loc[portfolio['symbol'] == symbol]) == 0:
-        console.print(f'{symbol} not found in db. Adding {symbol} to db...')
-        portfolio = pd.concat([portfolio, pd.DataFrame(
-            {'symbol': [symbol], 'position': [position]})], ignore_index=True)
+        if verb == 'add':
+            console.print(f'{symbol} not found in db. Adding {symbol} to db...')
+            portfolio = pd.concat([portfolio, pd.DataFrame(
+                {'symbol': [symbol], 'position': [position]})], ignore_index=True)
+        elif verb == 'sub':
+            raise ValueError(f'Cannot subtract a position of {symbol} as it is not in the portfolio.')
     else:
         if verb == 'add':
             portfolio.loc[portfolio['symbol'] ==
@@ -102,6 +116,11 @@ def update_portfolio(portfolio, verb, symbol, position):
         elif verb == 'sub':
             portfolio.loc[portfolio['symbol'] ==
                           symbol, 'position'] -= position
+            updated_position = portfolio.loc[portfolio['symbol'] == symbol, 'position'].values[0]
+            if updated_position < 0:
+                raise ValueError("Position cannot be negative.")
+            elif updated_position == 0:
+                portfolio = portfolio[portfolio['symbol'] != symbol]
         elif verb == 'reset':
             portfolio.loc[portfolio['symbol'] == symbol, 'position'] = position
     return portfolio
@@ -125,31 +144,41 @@ def add_operation(operations, verb, position, symbol, price, currency):
 
 
 def main():
-    args = sys.argv[1:]
-    portfolio, operations = read_dbs()
+    try: 
+        args = sys.argv[1:]
+        portfolio, operations = read_dbs()
 
-    if args[0] == 'report':
-        print_report(operations, portfolio)
-        return
+        if args[0] == 'report':
+            print_report(operations, portfolio)
+            return
 
-    try:
-        verb, position, symbol, price, currency = validate_args(args)
+        try:
+            verb, position, symbol, price, currency = validate_args(args)
+        except ValueError as e:
+            console.print(f"Error: {e}")
+            return
+
+        portfolio = update_portfolio(portfolio, verb, symbol, position)
+        operations = add_operation(
+            operations, verb, position, symbol, price, currency)
+            
+        save_dbs(operations, portfolio)
+
     except ValueError as e:
-        console.print(f"Error: {e}")
-        return
-
-    portfolio = update_portfolio(portfolio, verb, symbol, position)
-    operations = add_operation(
-        operations, verb, symbol, position, price, currency)
-    save_dbs(operations, portfolio)
+        console.print(f"[red]Error: {e}[/red]")
+    except FileNotFoundError as e:
+        console.print(f"[red]Error: File not found - {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]An unexpected error occurred: {e}[/red]")
 
 def get_latest_closing_price(symbol):
-      stock = yf.Ticker(symbol)
-      hist = stock.history(period="1d")
-      if not hist.empty:
-          return hist['Close'].iloc[-1]
-      else:
-          return None
+    print(f"--> Getting latest closing price for {symbol}...")
+    stock = yf.Ticker(symbol)
+    hist = stock.history(period="1d")
+    if not hist.empty:
+        return hist['Close'].iloc[-1]
+    else:
+        return None
 
 if __name__ == '__main__':
     main()
